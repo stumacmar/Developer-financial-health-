@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as db from './db.js';
 import { config } from './config.js';
 import { BANDS } from './scoring.js';
+import { timingSafeEqual } from 'node:crypto';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -15,6 +16,8 @@ export function startServer({ port = config.port, demo = false } = {}) {
   db.openDb();
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
+    if (!authorised(req)) { res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Developer Radar"', 'Content-Type': 'text/plain' }); return res.end('Authentication required'); }
     try {
       if (url.pathname.startsWith('/api/')) return await api(req, res, url, { demo });
       return serveStatic(url.pathname, res);
@@ -23,8 +26,39 @@ export function startServer({ port = config.port, demo = false } = {}) {
       json(res, 500, { error: err.message });
     }
   });
-  server.listen(port, () => console.log(`Developer radar dashboard: http://localhost:${port}${demo ? '  (demo data)' : ''}`));
+  server.listen(port, () => console.log(`Developer radar dashboard: http://localhost:${port}${demo ? '  (demo data)' : ''}${config.dashboardPassword ? '  (basic auth on)' : ''}`));
+  if (!demo) startScheduler();
   return server;
+}
+
+function authorised(req) {
+  if (!config.dashboardPassword) return true;
+  const h = req.headers.authorization || '';
+  if (!h.startsWith('Basic ')) return false;
+  const given = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':').slice(1).join(':');
+  const a = Buffer.from(given), b = Buffer.from(config.dashboardPassword);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Hosted mode: sync every SYNC_INTERVAL_HOURS, refreshing the NHQB register when it is missing or over a week old. */
+function startScheduler() {
+  if (!config.syncIntervalHours || !config.companiesHouseApiKey) {
+    if (config.syncIntervalHours && !config.companiesHouseApiKey) console.warn('[scheduler] SYNC_INTERVAL_HOURS set but COMPANIES_HOUSE_API_KEY missing; scheduler disabled');
+    return;
+  }
+  const every = config.syncIntervalHours * 3600 * 1000;
+  const tick = async () => {
+    if (syncInFlight) return;
+    const { runSync } = await import('./sync.js');
+    const last = db.getMeta('nhqb_last_refresh');
+    const refreshNhqb = !last || Date.now() - new Date(last).getTime() > 7 * 86400000;
+    console.log(`[scheduler] starting sync${refreshNhqb ? ' (with NHQB register refresh)' : ''}`);
+    syncInFlight = runSync({ refreshNhqb }).then((r) => console.log(`[scheduler] sync done: ${r.results.length} companies`)).catch((e) => console.error('[scheduler]', e)).finally(() => { syncInFlight = null; });
+  };
+  const lastSync = db.getMeta('last_sync');
+  const due = lastSync ? Math.max(60000, new Date(lastSync).getTime() + every - Date.now()) : 60000;
+  console.log(`[scheduler] syncing every ${config.syncIntervalHours}h; next run in ${Math.round(due / 60000)} min`);
+  setTimeout(() => { tick(); setInterval(tick, every); }, due).unref();
 }
 
 async function api(req, res, url, { demo }) {

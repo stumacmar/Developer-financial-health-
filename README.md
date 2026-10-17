@@ -91,6 +91,38 @@ A full sync of ~250 developers makes ~1,250 Companies House calls (about 12 minu
 Gazette calls (about 7 minutes at the pace we use to stay under its throttle). `--limit N` and `--company <number|name>`
 narrow a run; `--no-gazette` skips the Gazette pass.
 
+## Going live
+
+The app is one long-running Node process plus a SQLite file, so it needs a host with a **persistent disk**, not a
+serverless/static host. The repo ships a `Dockerfile` and a `fly.toml`; the server syncs itself on a timer when
+`SYNC_INTERVAL_HOURS` is set and password-protects the dashboard when `DASHBOARD_PASSWORD` is set.
+
+**Fly.io (about $2–3/month, free allowance usually covers it)**
+
+```
+fly auth signup                                    # or fly auth login
+fly launch --no-deploy --copy-config               # accepts the bundled fly.toml; pick a unique app name if asked
+fly volumes create radar_data --size 1 --region lhr
+fly secrets set COMPANIES_HOUSE_API_KEY=xxxx DASHBOARD_PASSWORD='a-strong-password'
+fly secrets set ALERT_WEBHOOK_URL=https://hooks.slack.com/...        # optional
+fly deploy
+fly ssh console -C "node --no-warnings src/cli.js nhqb"              # first-time register pull + matching (10–15 min)
+fly ssh console -C "node --no-warnings src/cli.js sync"              # first full sync, or wait for the scheduler
+fly open                                                             # https://<app>.fly.dev, any username + your password
+```
+
+**Railway / Render / any Docker host.** Deploy the repo with the Dockerfile, attach a volume at `/data`, and set the
+same four environment variables (`COMPANIES_HOUSE_API_KEY`, `DASHBOARD_PASSWORD`, optionally `ALERT_WEBHOOK_URL`,
+`SYNC_INTERVAL_HOURS=24`). Run the two one-off commands above from the host's shell.
+
+**A VPS or office box.** `git clone`, `npm run nhqb`, then either set `SYNC_INTERVAL_HOURS=24` in `.env` and keep
+`npm run serve` running under systemd or pm2, or leave the interval at 0 and use the cron lines above. Put nginx or
+Caddy in front for HTTPS.
+
+Operational notes: the Companies House key is tied to your account, keep it in a secret not in the repo; the first sync
+after a register refresh is the slow one, later ones only fetch what the API allows per 5 minutes; back up
+`/data/radar.sqlite` occasionally (it holds every snapshot and alert).
+
 ## Dashboard and API
 
 `npm run serve` (or `npm run demo`) starts a dependency-free HTTP server:
@@ -104,6 +136,7 @@ narrow a run; `--no-gazette` skips the Gazette pass.
 | `POST /api/alerts/:id/ack` | Acknowledge an alert. |
 | `POST /api/sync` | Kick off a sync in the background (disabled in demo mode). |
 | `GET /api/register` | The cached NHQB register. |
+| `GET /healthz` | Liveness check (unauthenticated). |
 
 ## Watchlist management
 

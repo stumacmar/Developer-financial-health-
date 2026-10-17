@@ -26,5 +26,9 @@ export const config = {
   alertWebhookMinSeverity: (process.env.ALERT_WEBHOOK_MIN_SEVERITY || 'high').toLowerCase(),
   port: Number(process.env.PORT || 8787),
   gazetteLookbackMonths: Number(process.env.GAZETTE_LOOKBACK_MONTHS || 24),
+  // Hosted mode: the server runs a sync itself every N hours (0 = never; use cron instead).
+  syncIntervalHours: Number(process.env.SYNC_INTERVAL_HOURS || 0),
+  // Hosted mode: protect the dashboard with HTTP basic auth (any username, this password).
+  dashboardPassword: process.env.DASHBOARD_PASSWORD || '',
   userAgent: 'developer-radar/0.1 (+https://github.com/stumacmar/developer-financial-health-)',
 };
