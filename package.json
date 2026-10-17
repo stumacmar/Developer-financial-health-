@@ -1,0 +1,19 @@
+{
+  "name": "developer-radar",
+  "version": "0.1.0",
+  "description": "Early-warning radar for NHQB-registered housebuilders: composite risk score from Companies House and The Gazette.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "bin": { "radar": "./src/cli.js" },
+  "scripts": {
+    "sync": "node --no-warnings src/cli.js sync",
+    "score": "node --no-warnings src/cli.js score",
+    "alerts": "node --no-warnings src/cli.js alerts",
+    "serve": "node --no-warnings src/cli.js serve",
+    "demo": "node --no-warnings src/cli.js serve --demo",
+    "nhqb": "node --no-warnings src/cli.js nhqb",
+    "test": "node --no-warnings --test test/*.test.js"
+  },
+  "license": "MIT"
+}
